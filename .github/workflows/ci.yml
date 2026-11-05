@@ -1,0 +1,37 @@
+name: CI Workflow
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Vowel Frequency Analyzer
+        uses: ./.github/actions/vowel-frequency-analyzer
+        with:
+          file: data.txt
+        env:
+          GITHUB_USER: ${{ github.actor }}
+
+      - name: Commit and Push README
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Update README with vowel frequency results"
+            git push origin HEAD:main
+          else
+            echo "No changes to commit"
+          fi

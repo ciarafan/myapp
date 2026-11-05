@@ -1,0 +1,13 @@
+name: 'Vowel Frequency Analyzer'
+description: 'Custom action to analyse vowel frequency in a text file.'
+
+inputs:
+  file:
+    description: 'The path to the text file to analyse (e.g., data.txt).'
+    required: true
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    FILE: ${{ inputs.file }}

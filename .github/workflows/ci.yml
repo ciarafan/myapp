@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - module3-work
   workflow_dispatch:
 
 permissions:
@@ -31,7 +32,7 @@ jobs:
           git add README.md
           if ! git diff --cached --quiet; then
             git commit -m "Update README with vowel frequency results"
-            git push origin HEAD:main
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           else
             echo "No changes to commit"
           fi

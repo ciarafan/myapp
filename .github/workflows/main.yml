@@ -18,3 +18,19 @@ jobs:
         if: github.actor == 'ciarafan'
         run: |
           sed -i '/<\/body>/i <p>Updated by Team Leader on '"$(date)"'</p>' index.html
+
+       # Step 3: Update README.md
+      - name: Update README
+        run: |
+          echo "### Updated by ${{ github.actor }} on $(date '+%Y-%m-%d %H:%M:%S') [Commit: $(git rev-parse --short HEAD)]" >> README.md
+      
+       # Step 4: Commit and Push Changes
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Workflow: Updated HTML and README for ${{ github.actor }}" || echo "No changes to commit"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

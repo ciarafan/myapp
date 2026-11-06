@@ -17,7 +17,7 @@ class TestTaskPool(unittest.TestCase):
     def test_get_open_tasks(self):
         self.pool.populate()
         open_tasks = self.pool.get_open_tasks()
-        self.assertEqual(len(open_tasks), 3)
+        self.assertEqual(len(open_tasks), 4)
         self.assertTrue(all(task.status == "ToDo" for task in open_tasks))
 
     def test_get_done_tasks(self):
@@ -44,3 +44,4 @@ if __name__ == "__main__":
 
     if not result.wasSuccessful():
         sys.exit(1)
+

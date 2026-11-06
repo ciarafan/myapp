@@ -1,0 +1,31 @@
+name: GitHub Projects Automation
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  move-issue-to-done:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Confirm PR Merge
+        run: echo "Pull request merged. Checking associated issues."
+
+      - name: Check Linked Issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          echo "Checking pull request description for linked issues."
+          echo "$PR_BODY"
+          echo "Linked issues can be closed using Closes #ISSUE_NUMBER."

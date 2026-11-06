@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  issues: write
+  issues: read
   pull-requests: read
 
 jobs:
@@ -15,17 +15,140 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Confirm PR Merge
-        run: echo "Pull request merged. Checking associated issues."
-
-      - name: Check Linked Issues
+      - name: Move linked issues to Done
         env:
-          GH_TOKEN: ${{ github.token }}
+          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        shell: bash
         run: |
-          echo "Checking pull request description for linked issues."
-          echo "$PR_BODY"
-          echo "Linked issues can be closed using Closes #ISSUE_NUMBER."
+          set -euo pipefail
+
+          api() {
+            local query="$1"
+            local variables="$2"
+
+            local payload
+            payload=$(jq -n \
+              --arg query "$query" \
+              --argjson variables "$variables" \
+              '{query:$query,variables:$variables}')
+
+            local response
+            response=$(curl --fail-with-body -sS \
+              -X POST https://api.github.com/graphql \
+              -H "Authorization: Bearer $PROJECT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$payload")
+
+            echo "$response" | jq -e \
+              'if .errors then error(.errors|tostring) else . end'
+          }
+
+          PROJECT_QUERY='
+            query($owner:String!,$number:Int!) {
+              user(login:$owner) {
+                projectV2(number:$number) {
+                  id
+                  fields(first:50) {
+                    nodes {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                        options { id name }
+                      }
+                    }
+                  }
+                }
+              }
+            }'
+
+          PROJECT_VARS=$(jq -n \
+            --arg owner "$REPO_OWNER" \
+            '{owner:$owner,number:1}')
+
+          PROJECT_DATA=$(api "$PROJECT_QUERY" "$PROJECT_VARS")
+
+          PROJECT_ID=$(echo "$PROJECT_DATA" | jq -r \
+            '.data.user.projectV2.id')
+
+          FIELD_ID=$(echo "$PROJECT_DATA" | jq -r \
+            '.data.user.projectV2.fields.nodes[]
+             | select(.name=="Status") | .id')
+
+          DONE_ID=$(echo "$PROJECT_DATA" | jq -r \
+            '.data.user.projectV2.fields.nodes[]
+             | select(.name=="Status")
+             | .options[] | select(.name=="Done") | .id')
+
+          test -n "$PROJECT_ID"
+          test -n "$FIELD_ID"
+          test -n "$DONE_ID"
+
+          ISSUE_NUMBERS=$(printf '%s\n' "$PR_BODY" |
+            grep -Eio '(close[sd]?|fix(e[sd])?|resolve[sd]?) #[0-9]+' |
+            grep -Eo '[0-9]+' | sort -u || true)
+
+          if [ -z "$ISSUE_NUMBERS" ]; then
+            echo "No closing issue references found."
+            exit 0
+          fi
+
+          ISSUE_QUERY='
+            query($owner:String!,$repo:String!,$number:Int!) {
+              repository(owner:$owner,name:$repo) {
+                issue(number:$number) {
+                  projectItems(first:50) {
+                    nodes {
+                      id
+                      project { id }
+                    }
+                  }
+                }
+              }
+            }'
+
+          MUTATION='
+            mutation($project:ID!,$item:ID!,
+                     $field:ID!,$option:String!) {
+              updateProjectV2ItemFieldValue(input:{
+                projectId:$project
+                itemId:$item
+                fieldId:$field
+                value:{singleSelectOptionId:$option}
+              }) {
+                projectV2Item { id }
+              }
+            }'
+
+          for ISSUE in $ISSUE_NUMBERS; do
+            ISSUE_VARS=$(jq -n \
+              --arg owner "$REPO_OWNER" \
+              --arg repo "$REPO_NAME" \
+              --argjson number "$ISSUE" \
+              '{owner:$owner,repo:$repo,number:$number}')
+
+            ISSUE_DATA=$(api "$ISSUE_QUERY" "$ISSUE_VARS")
+
+            ITEM_ID=$(echo "$ISSUE_DATA" | jq -r \
+              --arg id "$PROJECT_ID" \
+              '.data.repository.issue.projectItems.nodes[]
+               | select(.project.id==$id) | .id')
+
+            if [ -z "$ITEM_ID" ]; then
+              echo "Issue #$ISSUE is not on Project #1."
+              continue
+            fi
+
+            MUTATION_VARS=$(jq -n \
+              --arg project "$PROJECT_ID" \
+              --arg item "$ITEM_ID" \
+              --arg field "$FIELD_ID" \
+              --arg option "$DONE_ID" \
+              '{project:$project,item:$item,
+                field:$field,option:$option}')
+
+            api "$MUTATION" "$MUTATION_VARS" >/dev/null
+            echo "Moved Issue #$ISSUE to Done."
+          done
